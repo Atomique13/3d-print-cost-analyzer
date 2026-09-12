@@ -72,7 +72,7 @@ Open https://atomique13.github.io/3d-print-cost-analyzer/ to use the app directl
 5. Data persists in `data/data.json` on your host machine
 
 **For Local Testing:**
-1. Run: `.\test-local.ps1` (Windows) or `docker-compose -f docker-compose.local.yml up`
+1. Run: `.\test-local.ps1` (Windows) or `docker compose -f docker-compose.local.yml up --build -d --wait`
 2. Uses default admin/admin credentials (allowed via ALLOW_DEFAULT_CREDENTIALS flag)
 3. Open http://localhost:8080 in your browser
 
@@ -83,9 +83,9 @@ Open https://atomique13.github.io/3d-print-cost-analyzer/ to use the app directl
 - Shows warning banners when using default credentials
 - Session-based authentication protects all endpoints
 
-### Docker Hub
+### GitHub Container Registry
 1. Pull: `docker pull ghcr.io/atomique13/3d-print-cost-analyzer:latest`
-2. Run: `docker run -p 8080:80 -v ./data:/app/data ghcr.io/atomique13/3d-print-cost-analyzer:latest`
+2. Run: `docker run -p 8080:80 -v ./data:/app/data -e AUTH_USERNAME=your_username -e AUTH_PASSWORD=your_secure_password ghcr.io/atomique13/3d-print-cost-analyzer:latest`
 3. Open http://localhost:8080 in your browser
 
 **Or use Docker Compose (recommended):**
@@ -100,8 +100,8 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - AUTH_USERNAME: your_username
-      - AUTH_PASSWORD: your_secure_password
+      AUTH_USERNAME: your_username
+      AUTH_PASSWORD: your_secure_password
 ```
 
 Then run:
@@ -121,6 +121,32 @@ docker-compose up -d
 - Backup status shown in UI with time since last backup
 
 ## Usage Guide
+
+### Saving and recovery
+
+The status message distinguishes local browser storage from server saves. Server
+saves require the revision loaded by that browser. If another device changes the
+data, the app rejects the stale save: export your edits, reload, and reconcile
+them before importing. Expired sessions also show an error instead of reporting
+a successful save. Failed server saves retain a browser recovery copy, available
+through **Download recovery copy**; they do not silently switch to local mode.
+
+Imports validate settings, non-negative costs/weights, positive custom densities,
+unique job IDs, and durations before changing data. Durations can exceed 24 hours
+(for example, `36:30`). Export JSON downloads a file; paste its contents into the
+import textarea to restore it.
+
+Custom density is entered in **g/cm³**, matching the material legend. Older versions
+incorrectly treated that input as g/m. Review previously entered custom densities
+if you compensated for that old behavior.
+
+### Development checks
+
+Run `npm ci` followed by `npm test` (Node.js 22). Tests cover calculations,
+validation, safe HTML rendering, local saving, session expiry, save ordering, and
+live server import/conflict/backup behavior. Server tests use temporary data.
+The dependency lockfile makes installs reproducible; the `qs` override selects
+the patched minor release while Express still specifies an older range.
 
 ### Global Settings
 - **Printer Power (W)**: Your 3D printer's wattage
@@ -167,3 +193,34 @@ docker-compose up -d
 - **ASA**: 1.07
 - **PC**: 1.20
 - **Unknown**: 1.24 (PLA default)
+
+## Building and publishing images
+
+Build locally with `docker build -t print-analyzer:test .`. Run the isolated
+container check with `node scripts/docker-smoke.cjs print-analyzer:test`.
+It checks health, login, saving, persistence across restart, and runtime image
+contents, then removes its temporary container and volume.
+
+On Windows, `.\test-local.ps1` builds before replacing the local Compose container
+and waits for a healthy result. A failed build leaves the previous container running.
+The existing port mapping (`8080:80`) and data mount remain compatible.
+
+The Docker workflow runs application tests and an AMD64 container smoke test on
+pull requests, pushes to `master`/`main`, version tags (`v*`), and manual runs.
+Pull requests never publish. Successful push/manual runs publish AMD64 and ARM64
+images to `ghcr.io/<repository-owner>/<repository-name>` with:
+
+- `sha-<full-commit>` for each published commit.
+- Branch tags for branch builds.
+- Version and major.minor tags for semantic version tags such as `v1.2.3`.
+- `latest` only for the repository's default branch.
+
+BuildKit reuses dependency layers through the GitHub Actions cache; local builds
+also retain npm downloads in a cache mount. Images include OCI labels, build
+provenance, and an SBOM. Only application files and production dependencies are
+copied into the runtime image. Node runs directly and Docker checks `/login.html`
+for health without requiring credentials. ARM64 is built in CI; the container
+smoke test runs on AMD64.
+
+The workflow follows Docker's [GitHub Actions caching guidance](https://docs.docker.com/build/ci/github-actions/cache/)
+and [multi-platform build guidance](https://docs.docker.com/build/ci/github-actions/multi-platform/).

@@ -21,20 +21,19 @@ const MATERIAL_DENSITIES = {
 
 // Calculate linear density (g/m) from material density (g/cm³)
 function getMaterialLinearDensity(materialName, customDensity = null) {
-    if (customDensity) return customDensity;
     const filamentArea = Math.PI * Math.pow(1.75 / 2, 2) / 100; // cm²
-    const materialDensity = MATERIAL_DENSITIES[materialName.toLowerCase()] || 1.24; // default PLA
+    const materialDensity = customDensity ?? getMaterialDensity(materialName); // default PLA
     return roundup(materialDensity * filamentArea * 100, 2); // g/m
 }
 
 // Get material density in g/cm³
 function getMaterialDensity(materialName) {
-    return MATERIAL_DENSITIES[materialName.toLowerCase()] || 1.24; // default PLA
+    return isMaterialPreset(materialName) ? MATERIAL_DENSITIES[materialName.toLowerCase()] : 1.24; // default PLA
 }
 
 // Check if material is in preset list
 function isMaterialPreset(materialName) {
-    return materialName && MATERIAL_DENSITIES[materialName.toLowerCase()] !== undefined;
+    return materialName && Object.hasOwn(MATERIAL_DENSITIES, materialName.toLowerCase());
 }
 
 // Utility functions
@@ -47,34 +46,25 @@ function ceiling(num, sig) {
     return Math.ceil(num / sig) * sig;
 }
 
-function parseTime(timeStr) {
-    const parts = timeStr.split(':');
-    if (parts.length !== 2) return { hours: 0, minutes: 0 };
-    const h = parseInt(parts[0]) || 0;
-    const m = parseInt(parts[1]) || 0;
-    return { hours: h, minutes: m };
+function validateTime(value) {
+    return /^\d+:[0-5]\d$/.test(value);
 }
 
-function validateTime(timeStr) {
-    const parts = timeStr.split(':');
-    if (parts.length !== 2) return false;
-    const h = parseInt(parts[0]);
-    const m = parseInt(parts[1]);
-    return !isNaN(h) && !isNaN(m) && h >= 0 && h < 24 && m >= 0 && m < 60;
+function parseTime(value) {
+    if (!validateTime(value)) return { hours: 0, minutes: 0 };
+    const [hours, minutes] = value.split(':').map(Number);
+    return { hours, minutes };
 }
 
-function formatTime(timeStr) {
-    const parts = timeStr.split(':');
-    if (parts.length === 2) {
-        let h = parseInt(parts[0]) || 0;
-        let m = parseInt(parts[1]) || 0;
-        // Limit minutes to 59
-        if (m > 59) m = 59;
-        return `${h}:${m.toString().padStart(2, '0')}`;
-    }
-    // If no colon, assume it's all hours
-    const num = parseInt(timeStr) || 0;
-    return `${num}:00`;
+function formatTime(value) {
+    if (/^\d+$/.test(value)) return `${Number(value)}:00`;
+    if (!/^\d+:[0-5]?\d$/.test(value)) return null;
+    const [hours, minutes] = value.split(':').map(Number);
+    return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
+function escapeHTML(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
 
 // Calculations
@@ -105,46 +95,93 @@ function calculateJob(job) {
     };
 }
 
-// Persistence
-async function saveData() {
-    try {
-        const response = await fetch('/api/data', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ globalSettings, jobs, nextId })
-        });
-        if (!response.ok) throw new Error('Save failed');
-    } catch (err) {
-        console.error('Error saving data:', err);
-        // Fallback to localStorage if API fails
-        localStorage.setItem('3dPrintPricingData', JSON.stringify({ globalSettings, jobs, nextId }));
+// Persistence: server failures never switch an established server session to local mode.
+let storageMode = 'loading';
+let serverRevision = null;
+let saveQueue = Promise.resolve();
+const LOCAL_KEY = '3dPrintPricingData';
+const RECOVERY_KEY = '3dPrintPricingRecovery';
+
+function showStatus(message) {
+    const element = document.getElementById('error-message');
+    element.textContent = message;
+    element.style.display = 'block';
+}
+
+function snapshot() { return normalizeData({ globalSettings, jobs, nextId }); }
+function applyData(data) {
+    ({ globalSettings, jobs, nextId } = normalizeData(data));
+}
+
+async function persist(data, importing = false) {
+    if (storageMode === 'local') {
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(data));
+        showStatus('Saved locally in this browser.');
+        return;
     }
+    const previousRecovery = localStorage.getItem(RECOVERY_KEY);
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify(data));
+    if (storageMode !== 'server') throw new Error('Server unavailable. Edits are kept in a local recovery copy; export them before reloading.');
+    const response = await fetch(importing ? '/api/import' : '/api/data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': serverRevision },
+        body: JSON.stringify(data), redirect: 'error'
+    });
+    if (response.status === 401) throw new Error('Session expired. Export your edits, then sign in again. A local recovery copy is available.');
+    if (response.status === 409) throw new Error('Another device changed the data. Export your edits, then reload. A local recovery copy is available.');
+    if (!response.ok) throw new Error('Server save failed. Export your edits before reloading. A local recovery copy is available.');
+    serverRevision = response.headers.get('ETag');
+    if (previousRecovery) localStorage.setItem(RECOVERY_KEY, previousRecovery);
+    else localStorage.removeItem(RECOVERY_KEY);
+    showStatus('Saved to server.');
+}
+
+function queueSave(data, importing = false) {
+    const task = saveQueue.then(() => persist(data, importing)).catch(err => {
+        document.getElementById('export-recovery').hidden = !localStorage.getItem(RECOVERY_KEY);
+        throw err;
+    });
+    saveQueue = task.catch(() => {});
+    return task;
+}
+
+function saveData() {
+    try {
+        showStatus('Saving…');
+        return queueSave(snapshot()).catch(err => showStatus(err.message));
+    } catch (err) { showStatus(err.message); }
 }
 
 async function loadData() {
     try {
-        const response = await fetch('/api/data');
-        if (response.ok) {
-            const parsed = await response.json();
-            globalSettings = parsed.globalSettings || globalSettings;
-            jobs = parsed.jobs || [];
-            nextId = parsed.nextId || 1;
-            document.getElementById('error-message').style.display = 'none';
-        } else {
-            throw new Error('Load failed');
+        if (location.protocol === 'file:') storageMode = 'local';
+        else {
+            const response = await fetch('/api/data', { redirect: 'error', cache: 'no-store' });
+            if (response.status === 404) storageMode = 'local';
+            else {
+                if (response.status === 401) throw new Error('Sign in at /login.html, then reload.');
+                if (!response.ok) throw new Error('Server data could not be loaded. Reload before editing.');
+                applyData(await response.json());
+                serverRevision = response.headers.get('ETag');
+                storageMode = 'server';
+                showStatus('Loaded from server.');
+            }
+        }
+        if (storageMode === 'local') {
+            const saved = localStorage.getItem(LOCAL_KEY);
+            if (saved) applyData(JSON.parse(saved));
+            showStatus('Local mode: data is saved in this browser.');
+        }
+        if (localStorage.getItem(RECOVERY_KEY)) {
+            document.getElementById('export-recovery').hidden = false;
+            showStatus('A recovery copy from an unsuccessful save is available. Download it before making further edits.');
         }
     } catch (err) {
-        console.error('Error loading data:', err);
-        // Fallback to localStorage
-        const data = localStorage.getItem('3dPrintPricingData');
-        if (data) {
-            const parsed = JSON.parse(data);
-            globalSettings = parsed.globalSettings || globalSettings;
-            jobs = parsed.jobs || [];
-            nextId = parsed.nextId || 1;
-        }
-        document.getElementById('error-message').textContent = 'Database not accessible. Data will not persist.';
-        document.getElementById('error-message').style.display = 'block';
+        storageMode = 'blocked';
+        showStatus(`Unable to load data: ${err.message}`);
+        document.getElementById('global-settings').querySelectorAll('input').forEach(input => input.disabled = true);
+        document.getElementById('add-row').disabled = true;
+        document.getElementById('import-data').disabled = true;
+        document.getElementById('export-recovery').hidden = !localStorage.getItem(RECOVERY_KEY);
     }
 }
 
@@ -170,9 +207,9 @@ function renderTable() {
                 <button class="action-btn delete-btn" title="Delete">🗑️</button>
                 <button class="action-btn clear-btn" title="Clear">🧹</button>
             </td>
-            <td><input type="text" class="input-name" data-field="name" value="${job.name}"></td>
+            <td><input type="text" class="input-name" data-field="name" value="${escapeHTML(job.name)}"></td>
             <td class="material-cell">
-                <select class="input-material ${isMaterialPreset(job.material) ? 'material-preset' : ''}" data-field="material" value="${job.material}" style="${isMaterialPreset(job.material) || !job.material ? 'display: inline-block;' : 'display: none;'}">
+                <select class="input-material ${isMaterialPreset(job.material) ? 'material-preset' : ''}" data-field="material" value="${escapeHTML(job.material)}" style="${isMaterialPreset(job.material) || !job.material ? 'display: inline-block;' : 'display: none;'}">
                     <option value="">Custom...</option>
                     <option value="pla" ${job.material === 'pla' ? 'selected' : ''}>PLA</option>
                     <option value="abs" ${job.material === 'abs' ? 'selected' : ''}>ABS</option>
@@ -182,20 +219,20 @@ function renderTable() {
                     <option value="asa" ${job.material === 'asa' ? 'selected' : ''}>ASA</option>
                     <option value="pc" ${job.material === 'pc' ? 'selected' : ''}>PC</option>
                 </select>
-                <input type="text" class="input-material-custom material-custom" data-field="material" value="${job.material}" placeholder="Custom material" style="${!isMaterialPreset(job.material) && job.material ? 'display: inline-block;' : 'display: none;'}">
+                <input type="text" class="input-material-custom material-custom" data-field="material" value="${escapeHTML(job.material)}" placeholder="Custom material" style="${!isMaterialPreset(job.material) && job.material ? 'display: inline-block;' : 'display: none;'}">
             </td>
-            <td><input type="number" class="input-price" data-field="priceKg" value="${job.priceKg}"></td>
-            <td><input type="number" class="input-weight" data-field="weightG" value="${job.weightG}"></td>
-            <td><input type="text" class="input-time" data-field="printTime" value="${job.printTime}" placeholder="H:MM" maxlength="10"></td>
+            <td><input type="number" class="input-price" data-field="priceKg" value="${escapeHTML(job.priceKg)}"></td>
+            <td><input type="number" class="input-weight" data-field="weightG" value="${escapeHTML(job.weightG)}"></td>
+            <td><input type="text" class="input-time" data-field="printTime" value="${escapeHTML(job.printTime)}" placeholder="H:MM" maxlength="10"></td>
             <td class="filament-cell">
                 <span class="filament-length ${job.customDensity ? 'custom-density' : (isMaterialPreset(job.material) ? 'preset-density' : 'default-density')}">${calc.filamentLength || ''}</span>
                 <button class="density-edit-btn" title="Material density: ${getMaterialLinearDensity(job.material, job.customDensity).toFixed(2)} g/m">⚙️</button>
-                <input type="number" class="input-density" data-field="customDensity" value="${job.customDensity || ''}" placeholder="${getMaterialDensity(job.material).toFixed(2)}" step="0.01" min="0" style="display: none;">
+                <input type="number" class="input-density" data-field="customDensity" value="${job.customDensity || ''}" placeholder="${getMaterialDensity(job.material).toFixed(2)}" aria-label="Material density (g/cm³)" title="Material density (g/cm³)" step="0.01" min="0.01" style="display: none;">
             </td>
-            <td>${calc.materialPrice ? `${calc.materialPrice} ${globalSettings.currencySymbol}` : ''}</td>
-            <td>${calc.electricityCost ? `${calc.electricityCost} ${globalSettings.currencySymbol}` : ''}</td>
-            <td>${calc.totalCost ? `${calc.totalCost} ${globalSettings.currencySymbol}` : ''}</td>
-            <td>${calc.sellingPrice ? `${calc.sellingPrice} ${globalSettings.currencySymbol}` : ''}</td>
+            <td>${calc.materialPrice ? `${calc.materialPrice} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
+            <td>${calc.electricityCost ? `${calc.electricityCost} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
+            <td>${calc.totalCost ? `${calc.totalCost} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
+            <td>${calc.sellingPrice ? `${calc.sellingPrice} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
         `;
 
         tbody.appendChild(row);
@@ -204,6 +241,10 @@ function renderTable() {
 
 // Event handlers
 function handleGlobalChange() {
+    for (const id of ['printer-power', 'electricity-price']) {
+        const input = document.getElementById(id);
+        if (!input.checkValidity() || input.value === '' || Number(input.value) < 0) return;
+    }
     globalSettings.printerPower = parseFloat(document.getElementById('printer-power').value) || 0;
     globalSettings.electricityPrice = parseFloat(document.getElementById('electricity-price').value) || 0;
     const currencyInput = document.getElementById('currency-symbol').value.trim();
@@ -220,6 +261,13 @@ function handleTableChange(event) {
         const field = target.getAttribute('data-field');
         let value = target.type === 'number' ? parseFloat(target.value) || 0 : target.value;
         
+        if (target.type === 'number' && (target.value === '' || !Number.isFinite(value) || value < 0 || (field === 'customDensity' && value === 0))) {
+            if (!(field === 'customDensity' && target.value === '')) {
+                target.setCustomValidity('Enter a valid non-negative number (density must be greater than zero).');
+                return;
+            }
+        }
+        target.setCustomValidity('');
         // Handle material dropdown: show custom input when Custom is selected
         if (field === 'material' && target.tagName === 'SELECT') {
             const cell = target.closest('td');
@@ -243,10 +291,13 @@ function handleTableChange(event) {
             // Format on blur only to avoid interfering with typing
             if (event.type === 'blur' || event.type === 'change') {
                 value = formatTime(value);
+                if (value === null) { target.setCustomValidity('Enter a duration such as 2:30 or 25:00.'); return; }
                 target.value = value;
             }
         }
 
+        if (field === 'printTime' && !validateTime(value)) return;
+        if (field === 'material') value = value.trim().toLowerCase();
         const job = jobs.find(j => j.id === jobId);
         if (job) {
             job[field] = value;
@@ -341,6 +392,7 @@ function handleActions(event) {
                 job.priceKg = 0;
                 job.weightG = 0;
                 job.printTime = '0:00';
+                job.customDensity = null;
                 saveData();
                 renderTable();
             }
@@ -362,54 +414,43 @@ function handleAddRow() {
     renderTable();
 }
 
-function handleExport() {
-    const data = { globalSettings, jobs };
-    const json = JSON.stringify(data, null, 2);
-    const textarea = document.getElementById('import-textarea');
-    textarea.value = json;
-    textarea.style.display = 'block';
-    alert('JSON exported to textarea below import button.');
+function downloadJSON(text, filename) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function handleImport() {
+function handleExport() {
+    downloadJSON(JSON.stringify(snapshot(), null, 2), '3d-print-pricing.json');
+}
+
+async function handleImport() {
     const textarea = document.getElementById('import-textarea');
+    const controls = [...document.querySelectorAll('input, select, button, textarea')];
+    const disabled = controls.map(control => control.disabled);
     try {
-        const data = JSON.parse(textarea.value);
-        globalSettings = data.globalSettings || globalSettings;
-        jobs = data.jobs || [];
-        nextId = Math.max(...jobs.map(j => j.id), 0) + 1;
-        
-        // Use import endpoint for backup
-        fetch('/api/import', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ globalSettings, jobs, nextId })
-        }).then(response => {
-            if (response.ok) {
-                renderGlobalSettings();
-                renderTable();
-                textarea.style.display = 'none';
-                alert('Data imported successfully.');
-            } else {
-                throw new Error('Import failed');
-            }
-        }).catch(err => {
-            console.error('Error importing data:', err);
-            // Fallback to localStorage
-            localStorage.setItem('3dPrintPricingData', JSON.stringify({ globalSettings, jobs, nextId }));
-            renderGlobalSettings();
-            renderTable();
-            textarea.style.display = 'none';
-            alert('Data imported successfully.');
-        });
-    } catch (e) {
-        alert('Invalid JSON.');
+        const data = normalizeData(JSON.parse(textarea.value));
+        controls.forEach(control => control.disabled = true);
+        await queueSave(data, true);
+        applyData(data);
+        renderGlobalSettings();
+        renderTable();
+        textarea.style.display = 'none';
+        importMode = false;
+    } catch (err) {
+        showStatus(`Import failed: ${err.message}`);
+    } finally {
+        controls.forEach((control, index) => control.disabled = disabled[index]);
     }
 }
 
 // Update backup status display
 // Shows: "just now", "X min(s) ago", "Xh Xm ago", or "No backups yet"
 async function updateBackupStatus() {
+    if (storageMode !== 'server') return;
     try {
         const response = await fetch('/api/last-backup');
         if (response.ok) {
@@ -472,6 +513,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('table-body').addEventListener('click', handleActions);
 
     document.getElementById('add-row').addEventListener('click', handleAddRow);
+    document.getElementById('export-recovery').addEventListener('click', () => {
+        const data = localStorage.getItem(RECOVERY_KEY);
+        if (data) downloadJSON(data, '3d-print-recovery.json');
+    });
     document.getElementById('export-data').addEventListener('click', handleExport);
     document.getElementById('import-data').addEventListener('click', () => {
         const textarea = document.getElementById('import-textarea');
@@ -481,8 +526,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             importMode = true;
         } else {
             handleImport();
-            textarea.style.display = 'none';
-            importMode = false;
+
         }
     });
 });

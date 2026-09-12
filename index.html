@@ -12,12 +12,12 @@
     <div id="backup-status" style="display: none; background-color: #2a2a2a; color: #4caf50; padding: 8px; text-align: center; font-size: 14px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #333;">
         <span id="backup-text">🕐 Last backup: Loading...</span>
     </div>
-    <div id="error-message" style="color: red; background: #2a2a2a; padding: 10px; border-radius: 5px; display: none; margin-bottom: 20px;"></div>
+    <div id="error-message" role="status" aria-live="polite" style="color: #e0e0e0; background: #2a2a2a; padding: 10px; border-radius: 5px; display: none; margin-bottom: 20px;"></div>
     
     <div id="global-settings">
         <h2>Global Settings</h2>
-        <label>Printer Power Consumption (W): <input type="number" id="printer-power"></label>
-        <label>Electricity Price per kWh: <input type="number" id="electricity-price"></label>
+        <label>Printer Power Consumption (W): <input type="number" id="printer-power" min="0" step="any"></label>
+        <label>Electricity Price per kWh: <input type="number" id="electricity-price" min="0" step="any"></label>
         <label>Currency Symbol: <input type="text" id="currency-symbol" maxlength="10" placeholder="🦁"></label>
     </div>
     
@@ -28,6 +28,7 @@
     
     <div id="actions">
         <button id="add-row">➕ Add Row</button>
+        <button id="export-recovery" hidden>Download recovery copy</button>
         <button id="export-data">📤 Export JSON</button>
         <button id="import-data">📥 Import JSON</button>
         <textarea id="import-textarea" placeholder="Paste JSON here" style="display:none;"></textarea>
@@ -56,6 +57,7 @@
         </table>
     </div>
     
+    <script src="data-model.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

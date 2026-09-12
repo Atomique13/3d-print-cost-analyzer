@@ -1,5 +1,7 @@
 services:
   3d-print-analyzer:
+    build:
+      context: .
     image: 3d-print-cost-analyzer:local
     ports:
       - "8080:80"

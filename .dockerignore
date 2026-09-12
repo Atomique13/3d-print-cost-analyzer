@@ -1,0 +1,8 @@
+node_modules
+.npm-cache
+.git
+test
+data/data.json
+data/*.tmp
+data/*backup*
+.env*

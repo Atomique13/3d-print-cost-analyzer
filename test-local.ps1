@@ -1,17 +1,17 @@
-# Quick Docker rebuild and test script
-Write-Host "Stopping existing containers..." -ForegroundColor Yellow
-docker-compose -f docker-compose.local.yml down
+# Rebuild first so a failed build leaves the existing container running.
+$ErrorActionPreference = 'Stop'
+Push-Location $PSScriptRoot
+try {
+    Write-Host 'Building Docker image...' -ForegroundColor Yellow
+    docker compose -f docker-compose.local.yml build
+    if ($LASTEXITCODE -ne 0) { throw 'Docker build failed; existing container was not stopped.' }
 
-Write-Host "`nBuilding Docker image..." -ForegroundColor Yellow
-docker build -t 3d-print-cost-analyzer:local .
+    Write-Host 'Starting container and waiting for its health check...' -ForegroundColor Yellow
+    docker compose -f docker-compose.local.yml up -d --wait --wait-timeout 60
+    if ($LASTEXITCODE -ne 0) { throw 'Container did not become healthy. Check docker compose -f docker-compose.local.yml logs.' }
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "`nStarting container in background..." -ForegroundColor Green
-    docker-compose -f docker-compose.local.yml up -d
-    Start-Sleep -Seconds 2
-    Write-Host "`nContainer started! Open http://localhost:8080 to test (admin/admin)." -ForegroundColor Green
-    Write-Host "To view logs: docker-compose -f docker-compose.local.yml logs -f" -ForegroundColor Cyan
-    Write-Host "To stop: docker-compose -f docker-compose.local.yml down" -ForegroundColor Cyan
-} else {
-    Write-Host "`nBuild failed!" -ForegroundColor Red
+    Write-Host 'Ready: http://localhost:8080 (admin/admin)' -ForegroundColor Green
+    Write-Host 'Logs: docker compose -f docker-compose.local.yml logs -f' -ForegroundColor Cyan
+} finally {
+    Pop-Location
 }

@@ -3,10 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const session = require('express-session');
 const crypto = require('crypto');
+const { normalizeData } = require('./data-model');
 
 const app = express();
 const PORT = process.env.PORT || 80;
-const DATA_FILE = 'data/data.json';
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data/data.json');
 const DATA_FILE_EXAMPLE = 'data/data.json.example';
 
 // Ensure data directory exists and initialize with example if needed
@@ -36,7 +37,7 @@ function initializeDataFile() {
 initializeDataFile();
 // Default credentials (use environment variables for production)
 const AUTH_USERNAME = process.env.AUTH_USERNAME || 'admin';
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'admin';
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? 'admin';
 
 // Safety checks
 if (!AUTH_PASSWORD || AUTH_PASSWORD.trim() === '') {
@@ -45,7 +46,7 @@ if (!AUTH_PASSWORD || AUTH_PASSWORD.trim() === '') {
   process.exit(1);
 }
 
-if ((AUTH_USERNAME === 'admin' && AUTH_PASSWORD === 'admin') && !process.env.ALLOW_DEFAULT_CREDENTIALS) {
+if ((AUTH_USERNAME === 'admin' && AUTH_PASSWORD === 'admin') && process.env.ALLOW_DEFAULT_CREDENTIALS !== 'true') {
   console.error('\n⛔ SECURITY ERROR: Using default credentials (admin/admin)');
   console.error('Set custom AUTH_USERNAME and AUTH_PASSWORD environment variables');
   console.error('Example: docker-compose up');
@@ -73,7 +74,8 @@ function requireAuth(req, res, next) {
   if (req.session.authenticated) {
     next();
   } else {
-    res.redirect('/login.html');
+    if (req.path.startsWith('/api/')) res.status(401).json({ error: 'Session expired. Sign in again.' });
+    else res.redirect('/login.html');
   }
 }
 
@@ -81,8 +83,11 @@ function requireAuth(req, res, next) {
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (username === AUTH_USERNAME && password === AUTH_PASSWORD) {
-    req.session.authenticated = true;
-    res.sendStatus(200);
+    req.session.regenerate(err => {
+      if (err) return res.sendStatus(500);
+      req.session.authenticated = true;
+      req.session.save(err => res.sendStatus(err ? 500 : 200));
+    });
   } else {
     res.sendStatus(401);
   }
@@ -94,11 +99,42 @@ app.post('/api/logout', (req, res) => {
   res.sendStatus(200);
 });
 
+function revision(text) {
+  return '"' + crypto.createHash('sha256').update(text).digest('hex') + '"';
+}
+
+function validateWrite(req, res, next) {
+  try {
+    req.body = normalizeData(req.body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  try {
+    if (req.get('If-Match') !== revision(fs.readFileSync(DATA_FILE, 'utf8'))) {
+      return res.status(409).json({ error: 'Data changed on another device. Export your edits, then reload before saving.' });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Unable to read stored data.' });
+  }
+}
+
+function atomicWrite(data) {
+  const temporary = DATA_FILE + '.tmp';
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(data, null, 2));
+    fs.renameSync(temporary, DATA_FILE);
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
+}
+
 // Protected data endpoints
 app.get('/api/data', requireAuth, (req, res) => {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const data = fs.readFileSync(DATA_FILE, 'utf8');
+      res.set('ETag', revision(data));
       res.json(JSON.parse(data));
     } else {
       // Default data
@@ -115,9 +151,10 @@ app.get('/api/data', requireAuth, (req, res) => {
   }
 });
 
-app.post('/api/data', requireAuth, (req, res) => {
+app.post('/api/data', requireAuth, validateWrite, (req, res) => {
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(req.body, null, 2));
+    atomicWrite(req.body);
+    res.set('ETag', revision(fs.readFileSync(DATA_FILE, 'utf8')));
     res.sendStatus(200);
   } catch (err) {
     console.error('Error saving data:', err);
@@ -126,7 +163,7 @@ app.post('/api/data', requireAuth, (req, res) => {
 });
 
 // Import endpoint with backup
-app.post('/api/import', requireAuth, (req, res) => {
+app.post('/api/import', requireAuth, validateWrite, (req, res) => {
   try {
     // Check if data is different before backing up
     let shouldBackup = true;
@@ -144,7 +181,7 @@ app.post('/api/import', requireAuth, (req, res) => {
     if (shouldBackup && fs.existsSync(DATA_FILE)) {
       const now = new Date();
       const timestamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}T${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}`;
-      const backupFile = `${DATA_FILE}.import-backup-${timestamp}`;
+      const backupFile = `${DATA_FILE}.import-backup-${timestamp}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
       fs.copyFileSync(DATA_FILE, backupFile);
       console.log(`✓ Import backup created: ${backupFile}`);
       
@@ -163,7 +200,8 @@ app.post('/api/import', requireAuth, (req, res) => {
       }
     }
     
-    fs.writeFileSync(DATA_FILE, JSON.stringify(req.body, null, 2));
+    atomicWrite(req.body);
+    res.set('ETag', revision(fs.readFileSync(DATA_FILE, 'utf8')));
     res.sendStatus(200);
   } catch (err) {
     console.error('Error importing data:', err);
@@ -199,10 +237,14 @@ app.get('/api/last-backup', requireAuth, (req, res) => {
 });
 
 // Protect all other static files
-app.use(requireAuth, express.static('.'));
+for (const file of ['index.html', 'script.js', 'styles.css', 'data-model.js']) {
+  app.get(file === 'index.html' ? ['/', '/index.html'] : '/' + file, requireAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, file));
+  });
+}
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${server.address().port}`);
 });
 
 // Automatic periodic backup every 6 hours

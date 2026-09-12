@@ -4,13 +4,20 @@
   "description": "A web app for calculating 3D print costs",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.18.2",
     "express-session": "^1.17.3"
   },
-  "keywords": ["3d-printing", "cost-calculator"],
+  "keywords": [
+    "3d-printing",
+    "cost-calculator"
+  ],
   "author": "Atomique13",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "qs": "^6.16.0"
+  }
 }
