@@ -107,6 +107,27 @@ test('file mode saves without making API requests', async () => {
     assert.ok(storage.has('3dPrintPricingData'));
 });
 
+test('reordering preserves job data and persists the order across reloads', async () => {
+    const { context: c, run, storage } = browser();
+    await c.loadData();
+    const data = example();
+    data.jobs.push({ ...data.jobs[0], id: 3, name: 'Third plate', count: 4 });
+    c.applyData(data);
+    const original = JSON.parse(run('JSON.stringify(jobs)'));
+    assert.equal(c.moveJob(1, 3, true), true);
+    await run('saveQueue');
+    assert.deepEqual(JSON.parse(storage.get('3dPrintPricingData')).jobs, [original[1], original[2], original[0]]);
+    await c.loadData();
+    assert.equal(run('jobs.map(job => job.id).join()'), '2,3,1');
+    assert.equal(c.moveJob(1, 2), true);
+    await run('saveQueue');
+    assert.equal(run('jobs.map(job => job.id).join()'), '1,2,3');
+    assert.equal(c.moveJob(1, 1), false);
+    assert.equal(c.moveJob(1, 2), false);
+    assert.equal(c.moveJob(1, 999), false);
+    assert.deepEqual(JSON.parse(run('JSON.stringify(jobs)')), original);
+});
+
 test('expired sessions and conflicts reject saves and preserve recovery data', async () => {
     for (const status of [401, 409, 500]) {
         const { context, storage, run } = browser(async () => ({ status, ok: false }));

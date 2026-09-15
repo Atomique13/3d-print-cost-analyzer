@@ -23,6 +23,11 @@ prints, taxes, and actual profit are not included.
 Use the row buttons to duplicate, delete, or clear a job. Delete and clear ask
 for confirmation; clear also removes a custom density override.
 
+Drag the grip at the start of a row to reorder the list. The highlighted line
+is centered between rows and shows the single drop position for that gap.
+The new order is saved and included in JSON exports. Drop outside the rows
+or press Escape to cancel a drag.
+
 ## Multi-plate calculator
 
 Open **Multi-plate calculator** above the list to combine weights and print times.

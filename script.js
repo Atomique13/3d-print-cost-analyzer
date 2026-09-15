@@ -211,6 +211,7 @@ function renderTable() {
 
         row.innerHTML = `
             <td>
+                <button type="button" class="action-btn drag-handle" title="Drag to reorder" aria-label="Drag to reorder ${escapeHTML(job.name || 'row')}">⠿</button>
                 <button class="action-btn duplicate-btn" title="Duplicate">🔄</button>
                 <button class="action-btn delete-btn" title="Delete">🗑️</button>
                 <button class="action-btn clear-btn" title="Clear">🧹</button>
@@ -245,6 +246,95 @@ function renderTable() {
         `;
 
         tbody.appendChild(row);
+    });
+}
+
+function moveJob(id, targetId, after = false) {
+    const from = jobs.findIndex(job => job.id === id);
+    if (from < 0 || id === targetId || !jobs.some(job => job.id === targetId)) return false;
+    const reordered = [...jobs];
+    const [job] = reordered.splice(from, 1);
+    const to = reordered.findIndex(item => item.id === targetId) + (after ? 1 : 0);
+    reordered.splice(to, 0, job);
+    if (reordered.every((item, index) => item === jobs[index])) return false;
+    jobs = reordered;
+    saveData();
+    return true;
+}
+
+function initRowReordering() {
+    const tbody = document.getElementById('table-body');
+    const marker = document.createElement('div');
+    marker.className = 'row-drop-marker';
+    marker.hidden = true;
+    marker.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(marker);
+    let drag = null;
+    function clearMarker() {
+        marker.hidden = true;
+    }
+    function dropTarget(event) {
+        const row = document.elementFromPoint(event.clientX, event.clientY)?.closest('tr[data-job-id]');
+        if (!row || !tbody.contains(row) || row === drag.row) return null;
+        const rows = [...tbody.querySelectorAll('tr[data-job-id]')];
+        const bounds = row.getBoundingClientRect();
+        const gap = rows.indexOf(row) + (event.clientY > bounds.top + bounds.height / 2 ? 1 : 0);
+        const previous = rows[gap - 1];
+        const next = rows[gap];
+        if (previous === drag.row || next === drag.row) return null;
+        const y = previous && next
+            ? (previous.getBoundingClientRect().bottom + next.getBoundingClientRect().top) / 2
+            : next ? next.getBoundingClientRect().top : previous.getBoundingClientRect().bottom;
+        return { row: next || previous, after: !next, y };
+    }
+    function finish(event, cancelled = false) {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const target = !cancelled && drag.moved ? dropTarget(event) : null;
+        const id = Number(drag.row.dataset.jobId);
+        drag.row.classList.remove('row-dragging');
+        clearMarker();
+        drag = null;
+        if (target && moveJob(id, Number(target.row.dataset.jobId), target.after)) {
+            renderTable();
+            tbody.querySelector(`tr[data-job-id="${id}"] .drag-handle`).focus({ preventScroll: true });
+        }
+    }
+    tbody.addEventListener('pointerdown', event => {
+        const handle = event.target.closest('.drag-handle');
+        if (!handle || event.button !== 0 || drag || storageMode === 'blocked' || storageMode === 'loading') return;
+        handle.focus();
+        drag = { row: handle.closest('tr'), pointerId: event.pointerId, startY: event.clientY, moved: false };
+        handle.setPointerCapture(event.pointerId);
+        event.preventDefault();
+    });
+    tbody.addEventListener('pointermove', event => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        if (Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
+        if (!drag.moved) return;
+        drag.row.classList.add('row-dragging');
+        clearMarker();
+        const target = dropTarget(event);
+        if (target) {
+            const bounds = tbody.getBoundingClientRect();
+            const container = document.getElementById('table-container').getBoundingClientRect();
+            const left = Math.max(bounds.left, container.left, 0);
+            const right = Math.min(bounds.right, container.right, window.innerWidth);
+            marker.style.left = `${left}px`;
+            marker.style.width = `${Math.max(0, right - left)}px`;
+            marker.style.top = `${target.y}px`;
+            marker.hidden = false;
+        }
+        if (event.clientY < 60) window.scrollBy(0, -20);
+        else if (event.clientY > window.innerHeight - 60) window.scrollBy(0, 20);
+    });
+    tbody.addEventListener('pointerup', event => finish(event));
+    tbody.addEventListener('pointercancel', event => finish(event, true));
+    tbody.addEventListener('lostpointercapture', event => finish(event, true));
+    tbody.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && drag) {
+            finish({ pointerId: drag.pointerId }, true);
+            return;
+        }
     });
 }
 
@@ -583,6 +673,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderTable();
 
     initPlateCalculator();
+    initRowReordering();
 
     // Show warning if using default credentials
     if (sessionStorage.getItem('usingDefaultCredentials') === 'true') {

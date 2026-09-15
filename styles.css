@@ -278,6 +278,20 @@ textarea {
     transform: scale(1.1);
 }
 
+.drag-handle { cursor: grab; touch-action: none; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle:focus-visible { outline: 2px solid #80cbc4; outline-offset: 2px; }
+.action-btn.drag-handle:hover { transform: none; }
+.row-dragging { opacity: 0.5; }
+.row-drop-marker {
+    position: fixed;
+    height: 3px;
+    background: #80cbc4;
+    transform: translateY(-50%);
+    pointer-events: none;
+    z-index: 1000;
+}
+
 #table-container {
     overflow-x: auto;
 }
