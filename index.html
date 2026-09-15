@@ -3,60 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f4f0">
     <title>3D Print Cost Analyzer</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <h1>3D Print Cost Analyzer</h1>
-    <div id="warning-message" style="display: none; background-color: #ff9800; color: #000; padding: 12px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; text-align: center;">⚠️ Using default credentials! Please change password!!!</div>
-    <div id="backup-status" style="display: none; background-color: #2a2a2a; color: #4caf50; padding: 8px; text-align: center; font-size: 14px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #333;">
-        <span id="backup-text">🕐 Last backup: Loading...</span>
-    </div>
-    <div id="error-message" role="status" aria-live="polite" style="color: #e0e0e0; background: #2a2a2a; padding: 10px; border-radius: 5px; display: none; margin-bottom: 20px;"></div>
-    
-    <div id="global-settings">
-        <h2>Global Settings</h2>
-        <label>Printer Power Consumption (W): <input type="number" id="printer-power" min="0" step="any"></label>
-        <label>Electricity Price per kWh: <input type="number" id="electricity-price" min="0" step="any"></label>
-        <label>Currency Symbol: <input type="text" id="currency-symbol" maxlength="10" placeholder="🦁"></label>
-    </div>
-    
-    <div id="legend">
-        <strong>Material Density (g/cm³):</strong> PLA: 1.24 | ABS: 1.04 | PETG: 1.27 | TPU: 1.21 | PA: 1.14 | ASA: 1.07 | PC: 1.20 | Unknown: 1.24 (PLA default)
-        <br><strong style="color: #4caf50;">Green</strong> = Preset material | <strong style="color: #ff9800;">Orange</strong> = Custom density | <strong style="color: #2196f3;">Blue</strong> = Unknown material (PLA default)
-    </div>
-    
-    <div id="actions">
-        <button id="add-row">➕ Add Row</button>
-        <button id="export-recovery" hidden>Download recovery copy</button>
-        <button id="export-data">📤 Export JSON</button>
-        <button id="import-data">📥 Import JSON</button>
-        <textarea id="import-textarea" placeholder="Paste JSON here" style="display:none;"></textarea>
-    </div>
-    
-    <div id="table-container">
-        <table id="pricing-table">
-            <thead>
-                <tr>
-                    <th>Actions</th>
-                    <th>Name</th>
-                    <th>Material</th>
-                    <th>Price/kg</th>
-                    <th>Weight (g)</th>
-                    <th>Print Time (H:MM)</th>
-                    <th>Filament Length (m)</th>
-                    <th>Material Price</th>
-                    <th>Electricity Cost</th>
-                    <th>Total Base Cost</th>
-                    <th>Estimated Selling Price</th>
-                </tr>
-            </thead>
-            <tbody id="table-body">
-                <!-- Rows will be added here -->
-            </tbody>
-        </table>
-    </div>
-    
+    <a class="skip-link" href="#jobs">Skip to print jobs</a>
+    <header class="app-header">
+        <a class="brand" href="./" aria-label="3D Print Cost Analyzer home"><span class="brand-mark" aria-hidden="true">▱</span> PRINT COST <span class="brand-sub">/ WORKSPACE</span></a>
+        <span class="header-note">Less guesswork. Better estimates.</span>
+    </header>
+    <main>
+        <section class="page-heading">
+            <div><p class="eyebrow">YOUR PRINTING WORKBENCH</p><h1>Every print, accounted for.</h1><p class="intro">Turn filament, time, and power into a clear cost estimate.</p></div>
+            <span class="workspace-badge"><span aria-hidden="true">●</span> Cost calculator</span>
+        </section>
+        <div id="warning-message" class="notice warning" style="display:none;">Default login credentials are enabled. Set your own password for shared use.</div>
+        <div class="status-line">
+            <span id="error-message" role="status" aria-live="polite" style="display:none;"></span>
+            <span id="backup-status" style="display:none;"><span id="backup-text"></span></span>
+            <button id="export-recovery" class="text-button" hidden>Download recovery copy</button>
+        </div>
+        <section class="overview" aria-label="All jobs overview">
+            <div><span class="metric-label">PRINT JOBS</span><strong id="summary-jobs">0</strong><span class="metric-note">in your workspace</span></div>
+            <div><span class="metric-label">TOTAL PRINT TIME</span><strong id="summary-time">0h 00m</strong><span class="metric-note">across all jobs</span></div>
+            <div><span class="metric-label">BASE COST</span><strong id="summary-cost">0</strong><span class="metric-note">material + electricity</span></div>
+            <div class="metric-accent"><span class="metric-label">SUGGESTED SALES TOTAL</span><strong id="summary-sales">0</strong><span class="metric-note">before additional expenses</span></div>
+        </section>
+        <details id="global-settings" class="settings" open>
+            <summary><span>Workspace settings</span><span class="summary-hint">Power, electricity & currency</span></summary>
+            <div class="settings-fields">
+                <label>Printer power <span class="field-wrap"><input type="number" id="printer-power" min="0" step="any"><span>W</span></span></label>
+                <label>Electricity price <span class="field-wrap"><input type="number" id="electricity-price" min="0" step="any"><span>/ kWh</span></span></label>
+                <label>Currency symbol <span class="field-wrap"><input type="text" id="currency-symbol" maxlength="10" placeholder="🦁"></span></label>
+                <p>Applied to every job.<br>Changes are saved automatically.</p>
+            </div>
+        </details>
+        <section id="jobs" class="jobs-panel" aria-labelledby="jobs-title">
+            <div class="jobs-toolbar"><div><h2 id="jobs-title">Print jobs <span id="job-count" class="count">0</span></h2><p>Edit any field to update your estimate.</p></div>
+                <div id="actions"><button id="export-data">Export JSON</button><button id="import-data" aria-controls="import-textarea" aria-expanded="false">Import JSON</button><button id="add-row" class="primary">+ Add job</button></div>
+            </div>
+            <textarea id="import-textarea" aria-label="JSON data to import" placeholder="Paste exported JSON, then select Apply import. This replaces your current jobs." style="display:none;"></textarea>
+            <div id="empty-state" class="empty-state"><span class="empty-mark" aria-hidden="true">▱</span><h3>Your next print starts here.</h3><p>Select <strong>+ Add job</strong> to create your first estimate.<br>You'll need filament price, weight, and print time.</p></div>
+            <div id="table-container">
+                <table id="pricing-table"><caption class="sr-only">Editable print jobs and calculated costs</caption>
+                    <thead><tr><th scope="col">Actions</th><th scope="col">Job name</th><th scope="col">Material</th><th scope="col">Price / kg</th><th scope="col">Weight <small>g</small></th><th scope="col">Duration <small>h:mm</small></th><th scope="col">Filament <small>m</small></th><th scope="col">Material cost</th><th scope="col">Electricity</th><th scope="col">Base cost</th><th scope="col">Suggested price</th></tr></thead>
+                    <tbody id="table-body"></tbody>
+                </table>
+            </div>
+            <div class="table-note"><span class="note-dot" aria-hidden="true"></span> Suggested price = 3 × base cost, rounded up to a multiple of 5. Labor, wear, and taxes are not included.</div>
+        </section>
+        <details id="legend" class="help"><summary>About materials & density</summary><p>Length estimates use 1.75 mm filament. Select a material preset, or use the density control beside filament length to enter a value in g/cm³.</p><p>PLA 1.24 · ABS 1.04 · PETG 1.27 · TPU 1.21 · PA 1.14 · ASA 1.07 · PC 1.20</p><div class="legend-items"><span class="preset-density">● Preset density</span><span class="custom-density">● Custom density</span><span class="default-density">● Unknown material: PLA fallback</span></div></details>
+        <footer><span>3D Print Cost Analyzer</span><span>Built for the things you make.</span></footer>
+    </main>
     <script src="data-model.js"></script>
     <script src="script.js"></script>
 </body>
