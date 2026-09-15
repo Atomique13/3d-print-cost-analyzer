@@ -9,12 +9,31 @@ Set printer power in watts, electricity price per kWh, and a currency symbol
 filament price per kilogram, weight in grams, and duration in `H:MM` format.
 Durations may exceed 24 hours, such as `36:30`.
 
+Set **Count** to the number of objects on the plate (a whole number of at least
+1). Enter weight and print time for the entire plate. When Count exceeds 1,
+Total Base Cost and Estimated Selling Price also show the price per object in
+parentheses, rounded to one decimal without repeating the currency (for example,
+`60 RON (15.0)`). Counts are saved and exported; older data
+defaults to 1. Duplicating a row keeps its count, and clearing a row resets it to 1.
+
 Costs include filament and electricity. The suggested selling price is three
 times the base cost rounded up to a multiple of five. Labor, machine wear, failed
 prints, taxes, and actual profit are not included.
 
 Use the row buttons to duplicate, delete, or clear a job. Delete and clear ask
 for confirmation; clear also removes a custom density override.
+
+## Multi-plate calculator
+
+Open **Multi-plate calculator** above the list to combine weights and print times.
+It starts with three plates; add or remove plates as needed. Totals update as you
+type, and durations can exceed 24 hours. Collapse the panel to hide it without
+losing inputs. Plate inputs are temporary and reset on reload.
+
+Use **Add totals as a new row** to save the combined weight and duration to the
+list, then enter the material, price/kg, and total object count. Weight follows
+the list's existing rounding up to 0.1 g. Combine plates with the same material
+and price/kg; keep different materials in separate jobs.
 
 ## Materials and density
 

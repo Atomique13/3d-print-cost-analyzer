@@ -7,12 +7,15 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <h1>3D Print Cost Analyzer</h1>
-    <div id="warning-message" style="display: none; background-color: #ff9800; color: #000; padding: 12px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; text-align: center;">⚠️ Using default credentials! Please change password!!!</div>
-    <div id="backup-status" style="display: none; background-color: #2a2a2a; color: #4caf50; padding: 8px; text-align: center; font-size: 14px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #333;">
-        <span id="backup-text">🕐 Last backup: Loading...</span>
-    </div>
-    <div id="error-message" role="status" aria-live="polite" style="color: #e0e0e0; background: #2a2a2a; padding: 10px; border-radius: 5px; display: none; margin-bottom: 20px;"></div>
+    <details id="notifications">
+        <summary>Notifications <span id="notification-status" role="status" aria-live="polite">Loading…</span><span id="credential-badge" hidden>Default password</span></summary>
+        <div class="notification-content">
+            <div id="warning-message" style="display: none;">Using default credentials. Please change your password.</div>
+            <div id="error-message" style="display: none;"></div>
+            <div id="backup-status" style="display: none;"><span id="backup-text">Last backup: Loading...</span></div>
+            <button id="export-recovery" hidden>Download recovery copy</button>
+        </div>
+    </details>
     
     <div id="global-settings">
         <h2>Global Settings</h2>
@@ -21,14 +24,28 @@
         <label>Currency Symbol: <input type="text" id="currency-symbol" maxlength="10" placeholder="🦁"></label>
     </div>
     
-    <div id="legend">
+    <details id="legend">
+        <summary>Material density reference</summary>
+        <div class="legend-content">
         <strong>Material Density (g/cm³):</strong> PLA: 1.24 | ABS: 1.04 | PETG: 1.27 | TPU: 1.21 | PA: 1.14 | ASA: 1.07 | PC: 1.20 | Unknown: 1.24 (PLA default)
         <br><strong style="color: #4caf50;">Green</strong> = Preset material | <strong style="color: #ff9800;">Orange</strong> = Custom density | <strong style="color: #2196f3;">Blue</strong> = Unknown material (PLA default)
-    </div>
+        </div>
+    </details>
     
+    <details id="plate-calculator">
+        <summary>Multi-plate calculator</summary>
+        <p>Add the weight and print time for each plate. Combine plates using the same material and price/kg.</p>
+        <form id="plate-form">
+            <div id="plate-inputs"></div>
+            <button type="button" id="add-plate">➕ Add Plate</button>
+            <p id="plate-totals" role="status" aria-live="polite"></p>
+            <button type="submit" id="use-plate-totals">Add totals as a new row</button>
+            <p class="plate-hint">Then set the material, price/kg, and total object count in the new row. These plate inputs are temporary until added to the list.</p>
+        </form>
+    </details>
+
     <div id="actions">
         <button id="add-row">➕ Add Row</button>
-        <button id="export-recovery" hidden>Download recovery copy</button>
         <button id="export-data">📤 Export JSON</button>
         <button id="import-data">📥 Import JSON</button>
         <textarea id="import-textarea" placeholder="Paste JSON here" style="display:none;"></textarea>
@@ -40,6 +57,7 @@
                 <tr>
                     <th>Actions</th>
                     <th>Name</th>
+                    <th title="Number of objects on the plate">Count</th>
                     <th>Material</th>
                     <th>Price/kg</th>
                     <th>Weight (g)</th>

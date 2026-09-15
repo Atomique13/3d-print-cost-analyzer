@@ -102,10 +102,12 @@ let saveQueue = Promise.resolve();
 const LOCAL_KEY = '3dPrintPricingData';
 const RECOVERY_KEY = '3dPrintPricingRecovery';
 
-function showStatus(message) {
+function showStatus(message, attention = false) {
     const element = document.getElementById('error-message');
     element.textContent = message;
     element.style.display = 'block';
+    document.getElementById('notification-status').textContent = attention ? 'Needs attention' : message;
+    if (attention) document.getElementById('notifications').open = true;
 }
 
 function snapshot() { return normalizeData({ globalSettings, jobs, nextId }); }
@@ -147,8 +149,8 @@ function queueSave(data, importing = false) {
 function saveData() {
     try {
         showStatus('Saving…');
-        return queueSave(snapshot()).catch(err => showStatus(err.message));
-    } catch (err) { showStatus(err.message); }
+        return queueSave(snapshot()).catch(err => showStatus(err.message, true));
+    } catch (err) { showStatus(err.message, true); }
 }
 
 async function loadData() {
@@ -173,11 +175,11 @@ async function loadData() {
         }
         if (localStorage.getItem(RECOVERY_KEY)) {
             document.getElementById('export-recovery').hidden = false;
-            showStatus('A recovery copy from an unsuccessful save is available. Download it before making further edits.');
+            showStatus('A recovery copy from an unsuccessful save is available. Download it before making further edits.', true);
         }
     } catch (err) {
         storageMode = 'blocked';
-        showStatus(`Unable to load data: ${err.message}`);
+        showStatus(`Unable to load data: ${err.message}`, true);
         document.getElementById('global-settings').querySelectorAll('input').forEach(input => input.disabled = true);
         document.getElementById('add-row').disabled = true;
         document.getElementById('import-data').disabled = true;
@@ -186,6 +188,12 @@ async function loadData() {
 }
 
 // Render functions
+function formatJobTotal(total, count = 1) {
+    if (!total) return '';
+    const price = `${total} ${globalSettings.currencySymbol}`;
+    return count > 1 ? `${price} (${(total / count).toFixed(1)})` : price;
+}
+
 function renderGlobalSettings() {
     document.getElementById('printer-power').value = globalSettings.printerPower;
     document.getElementById('electricity-price').value = globalSettings.electricityPrice;
@@ -208,6 +216,7 @@ function renderTable() {
                 <button class="action-btn clear-btn" title="Clear">🧹</button>
             </td>
             <td><input type="text" class="input-name" data-field="name" value="${escapeHTML(job.name)}"></td>
+            <td><input type="number" class="input-count" data-field="count" value="${escapeHTML(job.count ?? 1)}" min="1" step="1" required aria-label="Number of objects on the plate"></td>
             <td class="material-cell">
                 <select class="input-material ${isMaterialPreset(job.material) ? 'material-preset' : ''}" data-field="material" value="${escapeHTML(job.material)}" style="${isMaterialPreset(job.material) || !job.material ? 'display: inline-block;' : 'display: none;'}">
                     <option value="">Custom...</option>
@@ -231,8 +240,8 @@ function renderTable() {
             </td>
             <td>${calc.materialPrice ? `${calc.materialPrice} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
             <td>${calc.electricityCost ? `${calc.electricityCost} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
-            <td>${calc.totalCost ? `${calc.totalCost} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
-            <td>${calc.sellingPrice ? `${calc.sellingPrice} ${escapeHTML(globalSettings.currencySymbol)}` : ''}</td>
+            <td>${escapeHTML(formatJobTotal(calc.totalCost, job.count))}</td>
+            <td>${escapeHTML(formatJobTotal(calc.sellingPrice, job.count))}</td>
         `;
 
         tbody.appendChild(row);
@@ -260,6 +269,10 @@ function handleTableChange(event) {
         const jobId = parseInt(row.getAttribute('data-job-id'));
         const field = target.getAttribute('data-field');
         let value = target.type === 'number' ? parseFloat(target.value) || 0 : target.value;
+        if (field === 'count' && (!Number.isSafeInteger(value) || value < 1)) {
+            target.setCustomValidity('Enter a whole number of objects, at least 1.');
+            return;
+        }
         
         if (target.type === 'number' && (target.value === '' || !Number.isFinite(value) || value < 0 || (field === 'customDensity' && value === 0))) {
             if (!(field === 'customDensity' && target.value === '')) {
@@ -322,7 +335,7 @@ function handleTableChange(event) {
             const calc = calculateJob(job);
             const tds = row.querySelectorAll('td');
             // Update filament length span inside the cell
-            const filamentSpan = tds[6].querySelector('.filament-length');
+            const filamentSpan = tds[7].querySelector('.filament-length');
             if (filamentSpan) {
                 filamentSpan.textContent = calc.filamentLength || '';
                 let className = 'filament-length';
@@ -336,8 +349,8 @@ function handleTableChange(event) {
                 filamentSpan.className = className;
             }
             // Update density button tooltip and input placeholder
-            const densityBtn = tds[6].querySelector('.density-edit-btn');
-            const densityInput = tds[6].querySelector('.input-density');
+            const densityBtn = tds[7].querySelector('.density-edit-btn');
+            const densityInput = tds[7].querySelector('.input-density');
             if (densityBtn) {
                 densityBtn.title = `Material density: ${getMaterialLinearDensity(job.material, job.customDensity).toFixed(2)} g/m`;
             }
@@ -345,10 +358,10 @@ function handleTableChange(event) {
                 // Update placeholder when material changes
                 densityInput.placeholder = getMaterialDensity(job.material).toFixed(2);
             }
-            tds[7].textContent = calc.materialPrice ? `${calc.materialPrice} ${globalSettings.currencySymbol}` : '';
-            tds[8].textContent = calc.electricityCost ? `${calc.electricityCost} ${globalSettings.currencySymbol}` : '';
-            tds[9].textContent = calc.totalCost ? `${calc.totalCost} ${globalSettings.currencySymbol}` : '';
-            tds[10].textContent = calc.sellingPrice ? `${calc.sellingPrice} ${globalSettings.currencySymbol}` : '';
+            tds[8].textContent = calc.materialPrice ? `${calc.materialPrice} ${globalSettings.currencySymbol}` : '';
+            tds[9].textContent = calc.electricityCost ? `${calc.electricityCost} ${globalSettings.currencySymbol}` : '';
+            tds[10].textContent = formatJobTotal(calc.totalCost, job.count);
+            tds[11].textContent = formatJobTotal(calc.sellingPrice, job.count);
         }
     }
 }
@@ -388,6 +401,7 @@ function handleActions(event) {
             const job = jobs.find(j => j.id === jobId);
             if (job) {
                 job.name = '';
+                job.count = 1;
                 job.material = '';
                 job.priceKg = 0;
                 job.weightG = 0;
@@ -404,6 +418,7 @@ function handleAddRow() {
     const newJob = {
         id: nextId++,
         name: '',
+        count: 1,
         material: '',
         priceKg: 0,
         weightG: 0,
@@ -441,7 +456,7 @@ async function handleImport() {
         textarea.style.display = 'none';
         importMode = false;
     } catch (err) {
-        showStatus(`Import failed: ${err.message}`);
+        showStatus(`Import failed: ${err.message}`, true);
     } finally {
         controls.forEach((control, index) => control.disabled = disabled[index]);
     }
@@ -486,6 +501,79 @@ async function updateBackupStatus() {
     }
 }
 
+// Multi-plate scratch calculator. Keep durations in minutes, including beyond 24 hours.
+function sumPlates(plates) {
+    let weightG = 0;
+    let minutes = 0;
+    for (const plate of plates) {
+        const weight = Number(plate.weightG);
+        const time = formatTime(plate.printTime.trim());
+        if (String(plate.weightG).trim() === '' || !Number.isFinite(weight) || weight < 0 || time === null) return null;
+        const parsed = parseTime(time);
+        weightG += weight;
+        minutes += parsed.hours * 60 + parsed.minutes;
+        if (!Number.isFinite(weightG) || !Number.isSafeInteger(minutes)) return null;
+    }
+    return { weightG: Math.round(weightG * 1e6) / 1e6,
+        printTime: `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}` };
+}
+
+function updatePlateTotals() {
+    const rows = [...document.querySelectorAll('.plate-row')];
+    const totals = sumPlates(rows.map(row => ({
+        weightG: row.querySelector('.plate-weight').value,
+        printTime: row.querySelector('.plate-time').value
+    })));
+    document.getElementById('plate-totals').textContent = totals
+        ? `Total weight: ${totals.weightG} g · Total print time: ${totals.printTime}`
+        : 'Enter a valid weight and print time (H:MM) for every plate.';
+    document.getElementById('use-plate-totals').disabled = !totals || !rows.length || storageMode === 'blocked' || storageMode === 'loading';
+    return totals;
+}
+
+function addPlate() {
+    const row = document.createElement('div');
+    row.className = 'plate-row';
+    row.innerHTML = `<strong class="plate-label"></strong>
+        <label>Weight (g) <input class="plate-weight" type="number" min="0" step="any" value="0" required></label>
+        <label>Print time (H:MM) <input class="plate-time" type="text" value="0:00" placeholder="H:MM" required></label>
+        <button type="button" class="remove-plate">Remove</button>`;
+    document.getElementById('plate-inputs').appendChild(row);
+    renumberPlates();
+}
+
+function renumberPlates() {
+    document.querySelectorAll('.plate-row').forEach((row, index) => {
+        row.querySelector('.plate-label').textContent = `Plate ${index + 1}`;
+        row.querySelector('.remove-plate').setAttribute('aria-label', `Remove plate ${index + 1}`);
+    });
+    updatePlateTotals();
+}
+
+function initPlateCalculator() {
+    for (let i = 0; i < 3; i++) addPlate();
+    document.getElementById('add-plate').addEventListener('click', addPlate);
+    document.getElementById('plate-inputs').addEventListener('input', updatePlateTotals);
+    document.getElementById('plate-inputs').addEventListener('click', event => {
+        if (!event.target.classList.contains('remove-plate')) return;
+        event.target.closest('.plate-row').remove();
+        renumberPlates();
+    });
+    document.getElementById('plate-form').addEventListener('submit', event => {
+        event.preventDefault();
+        const totals = updatePlateTotals();
+        if (!totals || document.getElementById('use-plate-totals').disabled) return;
+        const id = nextId++;
+        jobs.push({ id, name: '', material: '', priceKg: 0, count: 1,
+            weightG: roundup(totals.weightG, 1), printTime: totals.printTime, customDensity: null });
+        saveData();
+        renderTable();
+        const input = document.querySelector(`tr[data-job-id="${id}"] .input-name`);
+        input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        input.focus({ preventScroll: true });
+    });
+}
+
 // Init
 let importMode = false;
 
@@ -494,9 +582,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderGlobalSettings();
     renderTable();
 
+    initPlateCalculator();
+
     // Show warning if using default credentials
     if (sessionStorage.getItem('usingDefaultCredentials') === 'true') {
         document.getElementById('warning-message').style.display = 'block';
+        document.getElementById('credential-badge').hidden = false;
     }
     
     // Update backup status

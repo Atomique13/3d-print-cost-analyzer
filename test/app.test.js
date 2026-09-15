@@ -42,6 +42,49 @@ test('schema rejects corrupt imports and derives collision-free IDs', () => {
     }
 });
 
+test('object counts default for older data and survive JSON round trips', () => {
+    const data = example();
+    assert.equal(normalizeData(data).jobs[0].count, 1);
+    data.jobs[0].count = 4;
+    assert.equal(normalizeData(JSON.parse(JSON.stringify(normalizeData(data)))).jobs[0].count, 4);
+    for (const count of [0, -1, 1.5, '4', null, Number.MAX_SAFE_INTEGER + 1]) {
+        data.jobs[0].count = count;
+        assert.throws(() => normalizeData(data));
+    }
+});
+
+test('multiple objects show divided prices while preserving plate totals', () => {
+    const { context: c, run } = browser();
+    run("globalSettings.currencySymbol = 'RON';");
+    const job = { material: 'pla', weightG: 100, priceKg: 200, printTime: '0:00', count: 4 };
+    const calc = c.calculateJob(job);
+    assert.equal(calc.totalCost, 20);
+    assert.equal(calc.sellingPrice, 60);
+    assert.equal(c.formatJobTotal(calc.totalCost, 4), '20 RON (5.0)');
+    assert.equal(c.formatJobTotal(calc.sellingPrice, 4), '60 RON (15.0)');
+    assert.equal(c.formatJobTotal(20, 1), '20 RON');
+    assert.equal(c.formatJobTotal(20, 3), '20 RON (6.7)');
+});
+
+test('multi-plate totals carry minutes and support long prints and decimal weights', () => {
+    const { context: c } = browser();
+    const totals = c.sumPlates([
+        { weightG: '100.1', printTime: '12:45' },
+        { weightG: '200.2', printTime: '10:30' },
+        { weightG: '50', printTime: '2:50' }
+    ]);
+    assert.equal(totals.weightG, 350.3);
+    assert.equal(totals.printTime, '26:05');
+    assert.equal(c.sumPlates([{ weightG: '0', printTime: '2' }]).printTime, '2:00');
+    for (const plate of [
+        { weightG: '', printTime: '1:00' },
+        { weightG: '-1', printTime: '1:00' },
+        { weightG: 'abc', printTime: '1:00' },
+        { weightG: '1', printTime: '1:60' },
+        { weightG: '1', printTime: '' }
+    ]) assert.equal(c.sumPlates([plate]), null);
+});
+
 test('HTML interpolation escapes attribute and element injection', () => {
     const { context, run } = browser();
     assert.equal(context.escapeHTML('\"><img src=x onerror=alert(1)>'), '&quot;&gt;&lt;img src=x onerror=alert(1)&gt;');

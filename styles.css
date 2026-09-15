@@ -11,6 +11,26 @@ h1, h2 {
     font-size: 28px;
 }
 
+#global-settings h2 { font-size: 16px; margin: 0; align-self: center; }
+
+#notifications {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid #444;
+    border-radius: 5px;
+    background: #262626;
+    font-size: 14px;
+}
+
+#notifications summary, #legend summary { cursor: pointer; }
+#notification-status { margin-left: 12px; color: #b0b0b0; overflow-wrap: anywhere; }
+#credential-badge { margin-left: 12px; color: #ffb74d; }
+.notification-content { display: grid; gap: 10px; margin-top: 12px; overflow-wrap: anywhere; }
+.notification-content button { justify-self: start; }
+#warning-message { color: #ffb74d; }
+#backup-status { color: #b0b0b0; }
+.legend-content { margin-top: 12px; line-height: 1.6; }
+
 #global-settings {
     margin-bottom: 20px;
     background-color: #262626;
@@ -45,6 +65,21 @@ h1, h2 {
 #actions {
     margin-bottom: 20px;
 }
+
+#plate-calculator {
+    margin-bottom: 20px;
+    padding: 16px;
+    background: #262626;
+    border: 1px solid #444;
+    border-radius: 5px;
+}
+
+#plate-calculator summary { cursor: pointer; font-weight: bold; }
+.plate-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
+.plate-row label { display: flex; align-items: center; gap: 8px; }
+.plate-row input { width: 110px; }
+.plate-hint { color: #b0b0b0; font-size: 14px; }
+#plate-totals { font-weight: bold; }
 
 #legend {
     margin-bottom: 20px;
@@ -159,6 +194,10 @@ input[type="text"] {
 
 .input-name {
     width: 120px;
+}
+
+.input-count {
+    width: 60px;
 }
 
 .material-cell {
